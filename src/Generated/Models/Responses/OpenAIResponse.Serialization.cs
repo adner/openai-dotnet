@@ -461,7 +461,7 @@ namespace OpenAI.Responses
                 }
                 if (prop.NameEquals("created_at"u8))
                 {
-                    createdAt = DateTimeOffset.FromUnixTimeSeconds(prop.Value.GetInt64());
+                    createdAt = new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero).AddSeconds(prop.Value.GetDouble());
                     continue;
                 }
                 if (prop.NameEquals("error"u8))

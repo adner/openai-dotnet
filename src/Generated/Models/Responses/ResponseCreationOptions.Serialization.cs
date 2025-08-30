@@ -124,12 +124,23 @@ namespace OpenAI.Responses
             if (_additionalBinaryDataProperties?.ContainsKey("input") != true)
             {
                 writer.WritePropertyName("input"u8);
-                writer.WriteStartArray();
-                foreach (ResponseItem item in Input)
+                
+                // Check if there's only one input item that's a simple user message
+                if (Input.Count == 1 && Input[0] is MessageResponseItem messageItem && TryGetSimpleTextContent(messageItem, out string simpleText))
                 {
-                    writer.WriteObjectValue(item, options);
+                    // Serialize as simple string instead of array
+                    writer.WriteStringValue(simpleText);
                 }
-                writer.WriteEndArray();
+                else
+                {
+                    // Serialize as array (existing behavior)
+                    writer.WriteStartArray();
+                    foreach (ResponseItem item in Input)
+                    {
+                        writer.WriteObjectValue(item, options);
+                    }
+                    writer.WriteEndArray();
+                }
             }
             if (Optional.IsCollectionDefined(Include) && _additionalBinaryDataProperties?.ContainsKey("include") != true)
             {
@@ -485,5 +496,23 @@ namespace OpenAI.Responses
         }
 
         string IPersistableModel<ResponseCreationOptions>.GetFormatFromOptions(ModelReaderWriterOptions options) => "J";
+        
+        private static bool TryGetSimpleTextContent(MessageResponseItem messageItem, out string textContent)
+        {
+            textContent = null;
+            
+            // Check if it's a user message with a single text content part
+            if (messageItem is InternalResponsesUserMessage userMessage && 
+                userMessage.InternalContent != null && 
+                userMessage.InternalContent.Count == 1 && 
+                userMessage.InternalContent[0] is ResponseContentPart contentPart)
+            {
+                // Get the text content from the content part
+                textContent = contentPart.Text;
+                return !string.IsNullOrEmpty(textContent);
+            }
+            
+            return false;
+        }
     }
 }
