@@ -124,23 +124,47 @@ namespace OpenAI.Responses
             if (_additionalBinaryDataProperties?.ContainsKey("input") != true)
             {
                 writer.WritePropertyName("input"u8);
-                
-                // Check if there's only one input item that's a simple user message
-                if (Input.Count == 1 && Input[0] is MessageResponseItem messageItem && TryGetSimpleTextContent(messageItem, out string simpleText))
+                writer.WriteStartArray();
+                foreach (ResponseItem item in Input)
                 {
-                    // Serialize as simple string instead of array
-                    writer.WriteStringValue(simpleText);
-                }
-                else
-                {
-                    // Serialize as array (existing behavior)
-                    writer.WriteStartArray();
-                    foreach (ResponseItem item in Input)
+                    if (item is MessageResponseItem msgItem)
                     {
+                        // Serialize in simplified Responses API format: {role: "role", content: "text"}
+                        writer.WriteStartObject();
+                        writer.WritePropertyName("role"u8);
+                        writer.WriteStringValue(msgItem.InternalRole.ToString().ToLowerInvariant());
+                        
+                        // Extract text content from the message based on message type
+                        writer.WritePropertyName("content"u8);
+                        
+                        // Handle different message types - all have InternalContent as IList<ResponseContentPart>
+                        switch (msgItem)
+                        {
+                            case InternalResponsesUserMessage userMessage:
+                                SerializeMessageContent(writer, userMessage.InternalContent);
+                                break;
+                            case InternalResponsesSystemMessage systemMessage:
+                                SerializeMessageContent(writer, systemMessage.InternalContent);
+                                break;
+                            case InternalResponsesDeveloperMessage developerMessage:
+                                SerializeMessageContent(writer, developerMessage.InternalContent);
+                                break;
+                            case InternalResponsesAssistantMessage assistantMessage:
+                                SerializeMessageContent(writer, assistantMessage.InternalContent);
+                                break;
+                            default:
+                                writer.WriteStringValue("");
+                                break;
+                        }
+                        writer.WriteEndObject();
+                    }
+                    else
+                    {
+                        // For non-message items, use existing full serialization
                         writer.WriteObjectValue(item, options);
                     }
-                    writer.WriteEndArray();
                 }
+                writer.WriteEndArray();
             }
             if (Optional.IsCollectionDefined(Include) && _additionalBinaryDataProperties?.ContainsKey("include") != true)
             {
@@ -497,22 +521,34 @@ namespace OpenAI.Responses
 
         string IPersistableModel<ResponseCreationOptions>.GetFormatFromOptions(ModelReaderWriterOptions options) => "J";
         
-        private static bool TryGetSimpleTextContent(MessageResponseItem messageItem, out string textContent)
+        private static void SerializeMessageContent(Utf8JsonWriter writer, IList<ResponseContentPart> contentParts)
         {
-            textContent = null;
-            
-            // Check if it's a user message with a single text content part
-            if (messageItem is InternalResponsesUserMessage userMessage && 
-                userMessage.InternalContent != null && 
-                userMessage.InternalContent.Count == 1 && 
-                userMessage.InternalContent[0] is ResponseContentPart contentPart)
+            if (contentParts == null || contentParts.Count == 0)
             {
-                // Get the text content from the content part
-                textContent = contentPart.Text;
-                return !string.IsNullOrEmpty(textContent);
+                writer.WriteStringValue("");
+                return;
             }
             
-            return false;
+            if (contentParts.Count == 1 && !string.IsNullOrEmpty(contentParts[0].Text))
+            {
+                // Single text content - serialize as simple string
+                writer.WriteStringValue(contentParts[0].Text);
+            }
+            else
+            {
+                // Multiple content parts - concatenate text parts
+                var textBuilder = new System.Text.StringBuilder();
+                foreach (var part in contentParts)
+                {
+                    if (!string.IsNullOrEmpty(part.Text))
+                    {
+                        if (textBuilder.Length > 0)
+                            textBuilder.Append(" ");
+                        textBuilder.Append(part.Text);
+                    }
+                }
+                writer.WriteStringValue(textBuilder.ToString());
+            }
         }
     }
 }
